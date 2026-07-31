@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anatomía del YOLO · diagramas capa a capa</title>
 <link rel="stylesheet" href="css/estilo.css">
+<script>
+  /* el tema guardado se aplica antes de pintar, para que no haya parpadeo */
+  try {
+    var t = localStorage.getItem("yolo-tema");
+    if (t) document.documentElement.dataset.tema = t;
+  } catch (e) { /* localStorage bloqueado: se queda el tema por defecto */ }
+</script>
 </head>
 <body>
 
@@ -24,6 +31,12 @@
     <button class="pes" data-vista="glosario">Glosario de bloques</button>
     <button class="pes" data-vista="conceptos">Conceptos</button>
   </nav>
+
+  <div class="tema">
+    <button class="btn-icono ancho" id="btnTema" title="Cambiar los colores"
+            aria-haspopup="true" aria-expanded="false">◐&nbsp; Tema</button>
+    <div class="menu-tema oculto" id="menuTema"></div>
+  </div>
 </header>
 
 <!-- ─────────────────────────── barra de control ─────────────────────────── -->
@@ -144,6 +157,7 @@
 <script src="js/bloques.js"></script>
 <script src="js/glosario.js"></script>
 <script src="js/diagrama.js"></script>
+<script src="js/tema.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

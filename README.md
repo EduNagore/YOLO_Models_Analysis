@@ -20,6 +20,9 @@ Página web local para estudiar la arquitectura de cada versión de YOLO **capa 
 | Glosario | Una ficha por bloque, cada una con su diagrama interno abrible. |
 | Conceptos | Seis ideas de fondo: las tres etapas, por qué tres escalas, qué hace el CSP, cómo funcionan depth/width/max_channels, anchor-free, y el camino para eliminar la NMS. |
 
+**5 temas de color**, en el botón *Tema* de la cabecera: Noche (por defecto), Carbón,
+Contraste, Papel y Claro. La elección se guarda en el navegador.
+
 
 ## Drill-down
 
@@ -61,6 +64,7 @@ YOLO_estudio/
 │   ├── bloques.js         expansión interna de cada módulo (con drill-down)
 │   ├── glosario.js        fichas de bloques, comparativa y conceptos
 │   ├── diagrama.js        renderizador SVG (zoom, pan, enrutado de skip-connections)
+│   ├── tema.js            selector de tema de color
 │   └── app.js             estado e interfaz
 └── ultralytics/           clon local opcional de referencia (no versionado)
 ```
