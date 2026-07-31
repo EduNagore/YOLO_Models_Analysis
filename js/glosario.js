@@ -188,7 +188,7 @@ const GLOSARIO = [
  * ------------------------------------------------------------------------ */
 
 const COMPARATIVA = {
-  columnas: ["Version", "Ano", "Bloque del backbone", "Pooling", "Atencion",
+  columnas: ["Version", "Año", "Bloque del backbone", "Pooling", "Atencion",
              "Submuestreo", "Cabeza", "DFL", "NMS"],
   filas: [
     ["YOLOv3",  "2018", "Bottleneck (Darknet-53)", "—",            "—",     "Conv s=2",  "anchor-based · (u: anchor-free)", "no · (u: si)", "si"],
