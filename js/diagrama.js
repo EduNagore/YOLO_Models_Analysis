@@ -211,9 +211,20 @@ function rutaVertical(a, b) {
   const d = Math.max(18, Math.min(70, Math.abs(b.y - a.y) * 0.45));
   return `M ${a.x} ${a.y} C ${a.x} ${a.y + d}, ${b.x} ${b.y - d}, ${b.x} ${b.y}`;
 }
-/* Conexion larga: baja por debajo del grafo, recorre su carril y vuelve a subir. */
+/* Conexion larga: baja al hueco de debajo de su banda, recorre el carril y sale. */
 function rutaCarril(a, b, carrilY) {
   return `M ${a.x} ${a.y} C ${a.x} ${carrilY}, ${b.x} ${carrilY}, ${b.x} ${b.y}`;
+}
+
+/* "Salto de linea": sale por la derecha de una banda, baja por el hueco y
+ * vuelve a entrar por la izquierda de la siguiente, como el texto al envolver. */
+function rutaRetorno(a, b, xFuera, yHueco, xEntra) {
+  const r = 14;
+  return `M ${a.x} ${a.y} L ${xFuera - r} ${a.y}` +
+         ` Q ${xFuera} ${a.y}, ${xFuera} ${a.y + r} L ${xFuera} ${yHueco - r}` +
+         ` Q ${xFuera} ${yHueco}, ${xFuera - r} ${yHueco} L ${xEntra + r} ${yHueco}` +
+         ` Q ${xEntra} ${yHueco}, ${xEntra} ${yHueco + r} L ${xEntra} ${b.y - r}` +
+         ` Q ${xEntra} ${b.y}, ${xEntra + r} ${b.y} L ${b.x} ${b.y}`;
 }
 function rutaHorizontal(a, b) {
   const d = Math.max(20, Math.abs(b.x - a.x) * 0.42);
@@ -305,9 +316,15 @@ function renderSubgrafo(svg, grafo, alExpandir) {
 /* ==========================================================================
  * Render: grafo principal (modo horizontal)
  *
- * Fluye de izquierda a derecha: cada columna es una capa en su orden del YAML
- * y cada fila es un nivel de la piramide (P1 arriba … P5 abajo). Las conexiones
- * largas de la FPN/PAN se reparten en carriles por debajo del grafo.
+ * Se lee como un texto: cada etapa (backbone / neck / head) es una banda que
+ * fluye de izquierda a derecha y, al terminar, el hilo "salta de linea" a la
+ * banda siguiente. Dentro de una banda, la columna es el orden de la capa y la
+ * fila su nivel de piramide (P3 arriba … P5 abajo).
+ *
+ * Las conexiones largas de la FPN/PAN bajan al hueco que hay debajo de la banda
+ * de origen, lo recorren por su carril y suben (o bajan) hasta su destino. Como
+ * dentro de una banda cada capa tiene su propia columna, esos tramos verticales
+ * nunca cruzan otro nodo.
  * ========================================================================== */
 
 function renderModelo(svg, parsed, opciones) {
@@ -322,108 +339,144 @@ function renderModelo(svg, parsed, opciones) {
   svg.appendChild(capa);
 
   const W = 176, H = 80, GX = 32, GY = 24;
-  const PITCH_X = W + GX;
+  const PITCH_X = W + GX, PITCH_Y = H + GY;
   const ANCHO_CAB = 132;          // cabeceras de fila (niveles de piramide)
   const HUECO_CAB = ANCHO_CAB + 34;
+  const CARRIL = 26;              // separacion entre carriles de un hueco
 
-  // filas = strides presentes, ordenados de menos a mas (P1 arriba, P5 abajo)
-  const strides = [...new Set(parsed.capas.map(c => c.stride))].sort((a, b) => a - b);
-  const filaDe = {};
-  strides.forEach((s, i) => (filaDe[s] = i));
+  /* --- 1. una banda por etapa, en el orden en que aparecen --------------- */
+  const bandas = [];
+  parsed.capas.forEach(c => {
+    const ult = bandas[bandas.length - 1];
+    if (ult && ult.zona === c.zona) ult.capas.push(c);
+    else bandas.push({ zona: c.zona, capas: [c] });
+  });
 
+  /* --- 2. sitio dentro de la banda: columna = orden, fila = nivel -------- */
   const pos = {};
-  parsed.capas.forEach((c, i) => {
-    const fila = c.modulo === "Detect" || c.modulo === "v10Detect"
-      ? strides.length - 1
-      : filaDe[c.stride];
-    pos[c.i] = { x: i * PITCH_X, y: fila * (H + GY), w: W, h: H, fila };
+  bandas.forEach((b, bi) => {
+    b.strides = [...new Set(b.capas.map(c => c.stride))].sort((x, y) => x - y);
+    const filaDe = {};
+    b.strides.forEach((s, i) => (filaDe[s] = i));
+    b.ancho = b.capas.length * PITCH_X - GX;
+    b.alto = b.strides.length * PITCH_Y - GY;
+    b.capas.forEach((c, k) => {
+      // la cabeza lee P3, P4 y P5 a la vez: va abajo del todo, no en "su" nivel
+      const fila = (c.modulo === "Detect" || c.modulo === "v10Detect")
+        ? b.strides.length - 1
+        : filaDe[c.stride];
+      pos[c.i] = { x: k * PITCH_X, y: 0, w: W, h: H, banda: bi, fila };
+    });
   });
+  const anchoTotal = Math.max(...bandas.map(b => b.ancho));
 
-  const anchoTotal = parsed.capas.length * PITCH_X - GX;
-  const altoTotal = strides.length * (H + GY) - GY;
-
-  /* --- bandas de zona --------------------------------------------------- */
-  const zonas = [];
-  let zonaActual = null;
-  parsed.capas.forEach((c, i) => {
-    if (!zonaActual || zonaActual.zona !== c.zona) {
-      zonaActual = { zona: c.zona, desde: i, hasta: i };
-      zonas.push(zonaActual);
-    } else zonaActual.hasta = i;
-  });
-  const NOMBRE_ZONA = { backbone: "BACKBONE · extraccion de caracteristicas",
-                        cuello: "NECK (FPN + PAN) · fusion multi-escala",
-                        cabeza: "HEAD · prediccion" };
-  zonas.forEach(z => {
-    const x = z.desde * PITCH_X - 14;
-    const w = (z.hasta - z.desde + 1) * PITCH_X - GX + 28;
-    gFondo.appendChild(svgEl("rect", {
-      class: "banda banda-" + z.zona, x, y: -26, width: w, height: altoTotal + 52, rx: 14
-    }));
-    const t = svgEl("text", { class: "banda-txt", x: x + 14, y: -36 });
-    t.textContent = NOMBRE_ZONA[z.zona] || z.zona;
-    gFondo.appendChild(t);
-  });
-
-  /* --- cabeceras de fila (niveles de piramide) --------------------------- */
-  strides.forEach((s, i) => {
-    const y = i * (H + GY) + (H - 40) / 2;
-    const g = svgEl("g", { class: "cabecera-fila", transform: `translate(${-HUECO_CAB},${y})` });
-    g.appendChild(svgEl("rect", { x: 0, y: 0, width: ANCHO_CAB, height: 40, rx: 8, class: "cab-caja" }));
-    const t1 = svgEl("text", { x: ANCHO_CAB / 2, y: 17, "text-anchor": "middle", class: "cab-t1" });
-    t1.textContent = nivelPiramide(s) + " · stride " + s;
-    const t2 = svgEl("text", { x: ANCHO_CAB / 2, y: 31, "text-anchor": "middle", class: "cab-t2" });
-    const r = Math.round(parsed.tamEntrada / s);
-    t2.textContent = r + "×" + r + " px";
-    g.appendChild(t1); g.appendChild(t2);
-    gFondo.appendChild(g);
-  });
-
-  /* --- aristas ----------------------------------------------------------- */
-  const saltos = [];
+  /* --- 3. clasificar las aristas ---------------------------------------- */
+  const cortas = [], retornos = [], saltos = [];
   parsed.capas.forEach((c, i) => {
     const orig = Array.isArray(c.f) ? c.f : [c.f];
     orig.forEach(src => {
       if (src < 0) return;  // la entrada de la imagen
-      const distCols = i - src;
-      if (distCols === 1) {
-        const A = pos[src], B = pos[c.i];
-        const d = rutaHorizontal({ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 });
-        const p = svgEl("path", { class: "arista a-normal", d, "marker-end": "url(#flecha)" });
-        p.dataset.de = src; p.dataset.a = c.i;
-        gAristas.appendChild(p);
+      if (i - src !== 1) {
+        // el carril va en el hueco de debajo de la banda de origen
+        saltos.push({ de: src, a: c.i, hueco: pos[src].banda });
+      } else if (pos[src].banda === pos[c.i].banda) {
+        cortas.push({ de: src, a: c.i });
       } else {
-        saltos.push({ de: src, a: c.i, desde: Math.min(src, i), hasta: Math.max(src, i) });
+        retornos.push({ de: src, a: c.i });   // salto de linea entre etapas
       }
     });
   });
 
-  // reparto de carriles para las conexiones largas
-  const carriles = [];
-  saltos.sort((a, b) => (a.hasta - a.desde) - (b.hasta - b.desde));
+  // reparto de carriles: uno por hueco, sin solapar tramos horizontales
+  const carrilesPorHueco = {};
   saltos.forEach(s => {
+    const ax = pos[s.de].x + W / 2, bx = pos[s.a].x + W / 2;
+    s.x0 = Math.min(ax, bx); s.x1 = Math.max(ax, bx);
+  });
+  saltos.sort((a, b) => (a.x1 - a.x0) - (b.x1 - b.x0));
+  saltos.forEach(s => {
+    const lista = carrilesPorHueco[s.hueco] = carrilesPorHueco[s.hueco] || [];
     let idx = 0;
-    while (true) {
-      const ocupado = (carriles[idx] || []).some(o => !(s.hasta <= o.desde || s.desde >= o.hasta));
-      if (!ocupado) break;
-      idx++;
-    }
-    (carriles[idx] = carriles[idx] || []).push(s);
+    while ((lista[idx] || []).some(o => !(s.x1 <= o.x0 || s.x0 >= o.x1))) idx++;
+    (lista[idx] = lista[idx] || []).push(s);
     s.carril = idx;
+  });
+
+  /* --- 4. apilar las bandas, dejando sitio a los carriles de cada hueco -- */
+  let cursorY = 0;
+  bandas.forEach((b, bi) => {
+    b.y = cursorY;
+    b.nCarriles = (carrilesPorHueco[bi] || []).length;
+    b.yCarril = cursorY + b.alto + 40;                    // primer carril del hueco
+    b.hueco = 40 + b.nCarriles * CARRIL + (bi === bandas.length - 1 ? 26 : 54);
+    cursorY += b.alto + b.hueco;
+    b.capas.forEach(c => (pos[c.i].y = b.y + pos[c.i].fila * PITCH_Y));
+  });
+  const altoTotal = cursorY;
+
+  /* --- bandas de zona --------------------------------------------------- */
+  const NOMBRE_ZONA = { backbone: "BACKBONE · extraccion de caracteristicas",
+                        cuello: "NECK (FPN + PAN) · fusion multi-escala",
+                        cabeza: "HEAD · prediccion" };
+  bandas.forEach(b => {
+    gFondo.appendChild(svgEl("rect", {
+      class: "banda banda-" + b.zona, x: -14, y: b.y - 26,
+      width: b.ancho + 28, height: b.alto + 52, rx: 14
+    }));
+    const t = svgEl("text", { class: "banda-txt", x: 0, y: b.y - 36 });
+    t.textContent = NOMBRE_ZONA[b.zona] || b.zona;
+    gFondo.appendChild(t);
+  });
+
+  /* --- cabeceras de fila (niveles de piramide) --------------------------- */
+  bandas.forEach(b => {
+    if (b.zona === "cabeza") return;   // la cabeza no vive en un solo nivel
+    b.strides.forEach((s, i) => {
+      const y = b.y + i * PITCH_Y + (H - 40) / 2;
+      const g = svgEl("g", { class: "cabecera-fila", transform: `translate(${-HUECO_CAB},${y})` });
+      g.appendChild(svgEl("rect", { x: 0, y: 0, width: ANCHO_CAB, height: 40, rx: 8, class: "cab-caja" }));
+      const t1 = svgEl("text", { x: ANCHO_CAB / 2, y: 17, "text-anchor": "middle", class: "cab-t1" });
+      t1.textContent = nivelPiramide(s) + " · stride " + s;
+      const t2 = svgEl("text", { x: ANCHO_CAB / 2, y: 31, "text-anchor": "middle", class: "cab-t2" });
+      const r = Math.round(parsed.tamEntrada / s);
+      t2.textContent = r + "×" + r + " px";
+      g.appendChild(t1); g.appendChild(t2);
+      gFondo.appendChild(g);
+    });
+  });
+
+  /* --- aristas ----------------------------------------------------------- */
+  const arista = (clase, d, de, a, marcador) => {
+    const p = svgEl("path", { class: "arista " + clase, d, "marker-end": `url(#${marcador})` });
+    p.dataset.de = de; p.dataset.a = a;
+    gAristas.appendChild(p);
+  };
+
+  cortas.forEach(s => {
+    const A = pos[s.de], B = pos[s.a];
+    arista("a-normal",
+      rutaHorizontal({ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 }),
+      s.de, s.a, "flecha");
+  });
+
+  retornos.forEach(s => {
+    const A = pos[s.de], B = pos[s.a];
+    const b = bandas[A.banda];
+    arista("a-normal a-retorno",
+      rutaRetorno({ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 },
+                  anchoTotal + 26, b.yCarril + b.nCarriles * CARRIL + 14, -26),
+      s.de, s.a, "flecha");
   });
 
   saltos.forEach(s => {
     const A = pos[s.de], B = pos[s.a];
-    const carrilY = altoTotal + 40 + s.carril * 26;
-    const p1 = { x: A.x + A.w / 2, y: A.y + A.h };
-    const p2 = { x: B.x + B.w / 2, y: B.y + B.h };
-    const p = svgEl("path", {
-      class: "arista a-salto", d: rutaCarril(p1, p2, carrilY), "marker-end": "url(#flecha-cat)"
-    });
-    p.dataset.de = s.de; p.dataset.a = s.a;
-    gAristas.appendChild(p);
+    const carrilY = bandas[s.hueco].yCarril + s.carril * CARRIL;
+    const p1 = { x: A.x + A.w / 2, y: A.y + A.h };                       // sale por abajo
+    const p2 = A.banda === B.banda
+      ? { x: B.x + B.w / 2, y: B.y + B.h }                               // vuelve por abajo
+      : { x: B.x + B.w / 2, y: B.y };                                    // entra por arriba
+    arista("a-salto", rutaCarril(p1, p2, carrilY), s.de, s.a, "flecha-cat");
   });
-  const carrilesMax = carriles.length;
 
   /* --- nodos ------------------------------------------------------------- */
   parsed.capas.forEach(c => {
@@ -451,8 +504,8 @@ function renderModelo(svg, parsed, opciones) {
 
   const caja = {
     x: -HUECO_CAB - 30, y: -62,
-    w: anchoTotal + HUECO_CAB + 74,
-    h: altoTotal + 132 + carrilesMax * 26
+    w: anchoTotal + HUECO_CAB + 86,   // +56 para el carril de retorno de la derecha
+    h: altoTotal + 92
   };
   const cam = new Camara(svg, capa);
   requestAnimationFrame(() => cam.encuadrarInicio(caja, 30, opciones.margenIzq));
