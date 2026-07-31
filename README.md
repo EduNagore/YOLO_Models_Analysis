@@ -12,6 +12,16 @@ python servidor.py
 Abre `http://localhost:8777`. También funciona haciendo doble clic en `index.html`
 (no usa `fetch` ni módulos ES, así que no hay problemas de CORS con `file://`).
 
+## Publicar
+
+El sitio es estático y sin dependencias externas, así que se despliega tal cual en
+**GitHub Pages**: *Settings → Pages → Source: Deploy from a branch → `main` / `/ (root)`*.
+
+Todas las rutas son relativas, de modo que funciona igual servido desde la raíz de un
+dominio que desde el subdirectorio `/<repo>/` de un proyecto. El fichero `.nojekyll`
+evita que Pages pase el contenido por Jekyll. `servidor.py` es solo para desarrollo
+local; Pages lo ignora.
+
 ## Qué incluye
 
 **8 versiones**: YOLOv3, YOLOv5, YOLOv8, YOLOv9-c, YOLOv10, YOLO11, YOLO12, YOLO26.
@@ -57,10 +67,18 @@ Las migas de pan de arriba permiten volver; `Backspace` sube un nivel y `Esc` ci
 
 ## Fuente de los datos
 
-Los grafos están transcritos literalmente de los YAML del repo clonado en `ultralytics/`:
+Los grafos están transcritos literalmente de los YAML de Ultralytics:
 
 ```
 ultralytics/cfg/models/{v3,v5,v8,v9,v10,11,12,26}/*.yaml
+```
+
+Esa transcripción ya está hecha y vive en `js/datos-modelos.js`: **la web no necesita el
+repo de Ultralytics para funcionar**. Si quieres consultarlo al añadir versiones o bloques,
+clónalo dentro del proyecto (está en `.gitignore`, no se versiona):
+
+```bash
+git clone https://github.com/ultralytics/ultralytics.git
 ```
 
 La estructura interna de cada bloque viene de `ultralytics/nn/modules/block.py`,
@@ -82,7 +100,8 @@ dos versiones.
 ```
 YOLO_estudio/
 ├── index.html
-├── servidor.py
+├── servidor.py            servidor local de desarrollo (no interviene en el despliegue)
+├── .nojekyll              GitHub Pages sirve los ficheros tal cual
 ├── css/estilo.css
 ├── js/
 │   ├── datos-modelos.js   grafos YAML de las 8 versiones
@@ -91,7 +110,7 @@ YOLO_estudio/
 │   ├── glosario.js        fichas de bloques, comparativa y conceptos
 │   ├── diagrama.js        renderizador SVG (zoom, pan, enrutado de skip-connections)
 │   └── app.js             estado e interfaz
-└── ultralytics/           submódulo: fuente de los YAML y del código de referencia
+└── ultralytics/           clon local opcional de referencia (no versionado)
 ```
 
 Para añadir una versión basta con copiar su YAML a `datos-modelos.js` con el mismo formato

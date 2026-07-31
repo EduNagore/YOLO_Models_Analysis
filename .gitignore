@@ -1,0 +1,7 @@
+# Clon local de Ultralytics: solo se usa como referencia para transcribir los YAML,
+# la web no lo necesita en ejecucion. Ver README (Fuente de los datos).
+ultralytics/
+
+# Python
+__pycache__/
+*.pyc
