@@ -131,11 +131,20 @@ function pintarLeyenda() {
  * Diagrama principal
  * ========================================================================== */
 
+/** Hueco a la izquierda del lienzo: la ficha del modelo flota encima de el y
+ *  taparia los rotulos de nivel (P1…P5), que van en esa banda. */
+function margenIzqLienzo() {
+  const f = $("#fichaModelo");
+  if (!f || getComputedStyle(f).position !== "absolute") return 30;
+  return f.getBoundingClientRect().width + 28;
+}
+
 function pintarDiagrama() {
   const m = MODELOS_POR_ID[estado.modeloId];
   const svg = $("#lienzo");
   const r = renderModelo(svg, estado.parsed, {
     destacar: m.destacados,
+    margenIzq: margenIzqLienzo(),
     alSeleccionar: (capa) => abrirCapa(capa)
   });
   estado.camaraPrincipal = r.camara;
@@ -410,7 +419,7 @@ function cambiarVista(v) {
   $("#controles").style.display = (v === "diagrama" || v === "tabla") ? "" : "none";
   ajustarAltura();
   if (v === "diagrama" && estado.camaraPrincipal) {
-    requestAnimationFrame(() => estado.camaraPrincipal.encuadrar($("#lienzo").__caja, 30));
+    requestAnimationFrame(() => estado.camaraPrincipal.encuadrarInicio($("#lienzo").__caja, 30, margenIzqLienzo()));
   }
 }
 
@@ -478,7 +487,7 @@ function iniciar() {
   window.addEventListener("resize", () => {
     ajustarAltura();
     if (estado.vista === "diagrama" && estado.camaraPrincipal) {
-      estado.camaraPrincipal.encuadrar($("#lienzo").__caja, 30);
+      estado.camaraPrincipal.encuadrarInicio($("#lienzo").__caja, 30, margenIzqLienzo());
     }
   });
 

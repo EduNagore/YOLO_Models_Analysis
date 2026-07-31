@@ -427,7 +427,7 @@ const SIGLAS = [
     entradas: [
       { sigla: "P1 … P5", de: "niveles de la piramide",
         texto: "<b>Pn</b> es el mapa cuya resolucion se ha dividido entre 2 elevado a n. Con " +
-          "entrada 640: P3 = 80x80, P4 = 40x40, P5 = 20x20. Son las <b>columnas</b> del " +
+          "entrada 640: P3 = 80x80, P4 = 40x40, P5 = 20x20. Son las <b>filas</b> del " +
           "diagrama, y P3/P4/P5 son los tres niveles que salen hacia la cabeza." },
       { sigla: "stride", de: "paso, factor de reduccion",
         texto: "Cuanto se ha reducido la resolucion respecto a la entrada. P3 es stride 8, P5 es " +

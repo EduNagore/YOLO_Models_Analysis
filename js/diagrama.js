@@ -1,10 +1,10 @@
 /* ============================================================================
  * diagrama.js — Renderizador SVG (grafo principal y subgrafos de bloque)
  * ----------------------------------------------------------------------------
- * Modo "vertical"   : diagrama capa a capa. columna = nivel de la piramide,
- *                     fila = indice de capa. Las conexiones largas (skip) se
- *                     enrutan por carriles a la derecha.
- * Modo "horizontal" : interior de un bloque. columna y fila explicitas.
+ * Grafo principal : diagrama capa a capa, de izquierda a derecha. columna =
+ *                   indice de capa, fila = nivel de la piramide. Las conexiones
+ *                   largas (skip) se enrutan por carriles bajo el grafo.
+ * Subgrafo        : interior de un bloque. columna y fila explicitas.
  * ========================================================================== */
 
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -63,6 +63,22 @@ class Camara {
     if (caja.h * this.k < r.height - margen * 2) {
       this.ty = (r.height - caja.h * this.k) / 2 - caja.y * this.k;
     }
+    this.aplicar();
+  }
+  /** Encuadre de arranque. El grafo principal es una cinta mucho mas ancha que
+   *  alta: meterla entera en el lienzo la deja ilegible, asi que en ese caso se
+   *  ajusta solo al alto y se empieza por la izquierda (por el principio de la
+   *  red). El boton "Ajustar" sigue encuadrandolo todo. */
+  encuadrarInicio(caja, margen, margenIzq) {
+    margen = margen == null ? 40 : margen;
+    margenIzq = margenIzq == null ? margen : margenIzq;   // hueco de la ficha del modelo
+    const r = this.svg.getBoundingClientRect();
+    if (!r.width || !caja.w || !caja.h) return;
+    const kAlto = Math.min((r.height - margen * 2) / caja.h, 1.6);
+    if (caja.w * kAlto <= r.width - margenIzq - margen) return this.encuadrar(caja, margen);
+    this.k = Math.max(0.08, kAlto);
+    this.tx = margenIzq - caja.x * this.k;
+    this.ty = margen - caja.y * this.k;
     this.aplicar();
   }
   zoom(factor, cx, cy) {
@@ -195,8 +211,9 @@ function rutaVertical(a, b) {
   const d = Math.max(18, Math.min(70, Math.abs(b.y - a.y) * 0.45));
   return `M ${a.x} ${a.y} C ${a.x} ${a.y + d}, ${b.x} ${b.y - d}, ${b.x} ${b.y}`;
 }
-function rutaCarril(a, b, carrilX) {
-  return `M ${a.x} ${a.y} C ${carrilX} ${a.y}, ${carrilX} ${b.y}, ${b.x} ${b.y}`;
+/* Conexion larga: baja por debajo del grafo, recorre su carril y vuelve a subir. */
+function rutaCarril(a, b, carrilY) {
+  return `M ${a.x} ${a.y} C ${a.x} ${carrilY}, ${b.x} ${carrilY}, ${b.x} ${b.y}`;
 }
 function rutaHorizontal(a, b) {
   const d = Math.max(20, Math.abs(b.x - a.x) * 0.42);
@@ -286,7 +303,11 @@ function renderSubgrafo(svg, grafo, alExpandir) {
 }
 
 /* ==========================================================================
- * Render: grafo principal (modo vertical)
+ * Render: grafo principal (modo horizontal)
+ *
+ * Fluye de izquierda a derecha: cada columna es una capa en su orden del YAML
+ * y cada fila es un nivel de la piramide (P1 arriba … P5 abajo). Las conexiones
+ * largas de la FPN/PAN se reparten en carriles por debajo del grafo.
  * ========================================================================== */
 
 function renderModelo(svg, parsed, opciones) {
@@ -300,24 +321,26 @@ function renderModelo(svg, parsed, opciones) {
   capa.appendChild(gFondo); capa.appendChild(gAristas); capa.appendChild(gNodos);
   svg.appendChild(capa);
 
-  const W = 224, H = 62, GX = 46, GY = 26;
-  const PITCH_Y = H + GY;
+  const W = 176, H = 80, GX = 32, GY = 24;
+  const PITCH_X = W + GX;
+  const ANCHO_CAB = 132;          // cabeceras de fila (niveles de piramide)
+  const HUECO_CAB = ANCHO_CAB + 34;
 
-  // columnas = strides presentes, ordenados
+  // filas = strides presentes, ordenados de menos a mas (P1 arriba, P5 abajo)
   const strides = [...new Set(parsed.capas.map(c => c.stride))].sort((a, b) => a - b);
-  const colDe = {};
-  strides.forEach((s, i) => (colDe[s] = i));
+  const filaDe = {};
+  strides.forEach((s, i) => (filaDe[s] = i));
 
   const pos = {};
   parsed.capas.forEach((c, i) => {
-    const col = c.modulo === "Detect" || c.modulo === "v10Detect"
+    const fila = c.modulo === "Detect" || c.modulo === "v10Detect"
       ? strides.length - 1
-      : colDe[c.stride];
-    pos[c.i] = { x: col * (W + GX), y: i * PITCH_Y, w: W, h: H, col };
+      : filaDe[c.stride];
+    pos[c.i] = { x: i * PITCH_X, y: fila * (H + GY), w: W, h: H, fila };
   });
 
-  const anchoTotal = strides.length * (W + GX) - GX;
-  const altoTotal = parsed.capas.length * PITCH_Y - GY;
+  const anchoTotal = parsed.capas.length * PITCH_X - GX;
+  const altoTotal = strides.length * (H + GY) - GY;
 
   /* --- bandas de zona --------------------------------------------------- */
   const zonas = [];
@@ -332,24 +355,24 @@ function renderModelo(svg, parsed, opciones) {
                         cuello: "NECK (FPN + PAN) · fusion multi-escala",
                         cabeza: "HEAD · prediccion" };
   zonas.forEach(z => {
-    const y = z.desde * PITCH_Y - 14;
-    const h = (z.hasta - z.desde + 1) * PITCH_Y - GY + 28;
+    const x = z.desde * PITCH_X - 14;
+    const w = (z.hasta - z.desde + 1) * PITCH_X - GX + 28;
     gFondo.appendChild(svgEl("rect", {
-      class: "banda banda-" + z.zona, x: -26, y, width: anchoTotal + 52, height: h, rx: 14
+      class: "banda banda-" + z.zona, x, y: -26, width: w, height: altoTotal + 52, rx: 14
     }));
-    const t = svgEl("text", { class: "banda-txt", x: -18, y: y + 16 });
+    const t = svgEl("text", { class: "banda-txt", x: x + 14, y: -36 });
     t.textContent = NOMBRE_ZONA[z.zona] || z.zona;
     gFondo.appendChild(t);
   });
 
-  /* --- cabeceras de columna (niveles de piramide) ------------------------ */
+  /* --- cabeceras de fila (niveles de piramide) --------------------------- */
   strides.forEach((s, i) => {
-    const x = i * (W + GX);
-    const g = svgEl("g", { class: "cabecera-col", transform: `translate(${x},${-72})` });
-    g.appendChild(svgEl("rect", { x: 0, y: 0, width: W, height: 40, rx: 8, class: "cab-caja" }));
-    const t1 = svgEl("text", { x: W / 2, y: 17, "text-anchor": "middle", class: "cab-t1" });
+    const y = i * (H + GY) + (H - 40) / 2;
+    const g = svgEl("g", { class: "cabecera-fila", transform: `translate(${-HUECO_CAB},${y})` });
+    g.appendChild(svgEl("rect", { x: 0, y: 0, width: ANCHO_CAB, height: 40, rx: 8, class: "cab-caja" }));
+    const t1 = svgEl("text", { x: ANCHO_CAB / 2, y: 17, "text-anchor": "middle", class: "cab-t1" });
     t1.textContent = nivelPiramide(s) + " · stride " + s;
-    const t2 = svgEl("text", { x: W / 2, y: 31, "text-anchor": "middle", class: "cab-t2" });
+    const t2 = svgEl("text", { x: ANCHO_CAB / 2, y: 31, "text-anchor": "middle", class: "cab-t2" });
     const r = Math.round(parsed.tamEntrada / s);
     t2.textContent = r + "×" + r + " px";
     g.appendChild(t1); g.appendChild(t2);
@@ -362,10 +385,10 @@ function renderModelo(svg, parsed, opciones) {
     const orig = Array.isArray(c.f) ? c.f : [c.f];
     orig.forEach(src => {
       if (src < 0) return;  // la entrada de la imagen
-      const distFilas = i - src;
-      if (distFilas === 1) {
+      const distCols = i - src;
+      if (distCols === 1) {
         const A = pos[src], B = pos[c.i];
-        const d = rutaVertical({ x: A.x + A.w / 2, y: A.y + A.h }, { x: B.x + B.w / 2, y: B.y });
+        const d = rutaHorizontal({ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 });
         const p = svgEl("path", { class: "arista a-normal", d, "marker-end": "url(#flecha)" });
         p.dataset.de = src; p.dataset.a = c.i;
         gAristas.appendChild(p);
@@ -391,11 +414,11 @@ function renderModelo(svg, parsed, opciones) {
 
   saltos.forEach(s => {
     const A = pos[s.de], B = pos[s.a];
-    const carrilX = anchoTotal + 40 + s.carril * 26;
-    const p1 = { x: A.x + A.w, y: A.y + A.h / 2 };
-    const p2 = { x: B.x + B.w, y: B.y + B.h / 2 };
+    const carrilY = altoTotal + 40 + s.carril * 26;
+    const p1 = { x: A.x + A.w / 2, y: A.y + A.h };
+    const p2 = { x: B.x + B.w / 2, y: B.y + B.h };
     const p = svgEl("path", {
-      class: "arista a-salto", d: rutaCarril(p1, p2, carrilX), "marker-end": "url(#flecha-cat)"
+      class: "arista a-salto", d: rutaCarril(p1, p2, carrilY), "marker-end": "url(#flecha-cat)"
     });
     p.dataset.de = s.de; p.dataset.a = s.a;
     gAristas.appendChild(p);
@@ -419,7 +442,7 @@ function renderModelo(svg, parsed, opciones) {
       hijo: true,
       destacado: opciones.destacar && opciones.destacar.includes(c.modulo)
     };
-    const g = dibujarNodo(n, pos[c.i], { maxEtiqueta: 24, maxDetalle: 32 });
+    const g = dibujarNodo(n, pos[c.i], { maxEtiqueta: 17, maxDetalle: 26 });
     g.addEventListener("click", (ev) => { ev.stopPropagation(); opciones.alSeleccionar && opciones.alSeleccionar(c); });
     g.addEventListener("mouseenter", () => resaltar(svg, String(c.i), true));
     g.addEventListener("mouseleave", () => resaltar(svg, String(c.i), false));
@@ -427,12 +450,12 @@ function renderModelo(svg, parsed, opciones) {
   });
 
   const caja = {
-    x: -60, y: -90,
-    w: anchoTotal + 120 + carrilesMax * 26,
-    h: altoTotal + 130
+    x: -HUECO_CAB - 30, y: -62,
+    w: anchoTotal + HUECO_CAB + 74,
+    h: altoTotal + 132 + carrilesMax * 26
   };
   const cam = new Camara(svg, capa);
-  requestAnimationFrame(() => cam.encuadrar(caja, 30));
+  requestAnimationFrame(() => cam.encuadrarInicio(caja, 30, opciones.margenIzq));
   return { camara: cam, caja };
 }
 
