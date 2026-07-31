@@ -369,6 +369,30 @@ function pintarConceptos() {
 }
 
 /* ==========================================================================
+ * Vista: siglas
+ * ========================================================================== */
+
+function pintarSiglas() {
+  const total = SIGLAS.reduce((n, g) => n + g.entradas.length, 0);
+
+  $("#contenedorSiglas").innerHTML =
+    `<h2 class="seccion">Siglas</h2>
+     <p class="seccion-sub">Los ${total} acrónimos que aparecen en los diagramas, en las tablas
+     y en los nombres de los módulos, con lo que significan y — más útil — lo que hacen
+     realmente.</p>` +
+    SIGLAS.map(g =>
+      `<div class="titulo-grupo">${g.grupo}</div>
+       <div class="rejilla-siglas">` +
+      g.entradas.map(e =>
+        `<div class="tarjeta-sigla">
+           <h3>${e.sigla}</h3>
+           <div class="de">${e.de}</div>
+           <p>${e.texto}</p>
+         </div>`).join("") +
+      `</div>`).join("");
+}
+
+/* ==========================================================================
  * Navegacion entre vistas
  * ========================================================================== */
 
@@ -460,6 +484,7 @@ function iniciar() {
 
   pintarGlosario();
   pintarConceptos();
+  pintarSiglas();
   refrescar();
   ajustarAltura();
 }
